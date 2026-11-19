@@ -238,6 +238,10 @@ In addition to core *Vulkan* functionality, **MoltenVK**  also supports the foll
   - *Requires GPU Tier 2 argument buffers support.*
 - `VK_KHR_calibrated_timestamp`
   - *Requires Metal 2.2.*
+- `VK_KHR_cooperative_matrix`
+  - *Requires Metal 3.1 and an Apple family 7 GPU.*
+  - *Only 8x8x8 `Subgroup` scoped matrices are supported. Specialization constants used as the scope or
+    dimensions of a cooperative matrix must be set to those values.*
 - `VK_KHR_copy_commands2`
 - `VK_KHR_create_renderpass2`
 - `VK_KHR_dedicated_allocation`

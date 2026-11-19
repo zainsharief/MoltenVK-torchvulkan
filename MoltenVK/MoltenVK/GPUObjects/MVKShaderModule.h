@@ -146,19 +146,23 @@ protected:
     MTLFunctionConstant* getFunctionConstant(NSArray<MTLFunctionConstant*>* mtlFCs, NSUInteger mtlFCID);
 	void compileLibrary(const std::string& msl,
 						const std::vector<std::pair<uint32_t, MVKShaderMacroValue> >* specializationMacroDef = nullptr);
+	void compileUnspecializedLibrary();
 	void compressMSL(const std::string& msl);
 	void decompressMSL(std::string& msl);
 	MVKCompressor<std::string>& getCompressedMSL() { return _compressedMSL; }
 
 	MVKVulkanAPIDeviceObject* _owner;
-	id<MTLLibrary> _mtlLibrary;
+	id<MTLLibrary> _mtlLibrary = nil;
 	MVKCompressor<std::string> _compressedMSL;
 	mvk::SPIRVToMSLConversionResultInfo _shaderConversionResultInfo;
 
 	/** When true, representing a library created with source, but never specialized */
 	bool _maySpecializeWithMacro;
+	/** When true, compiling _mtlLibrary is deferred until a function is needed without macro specialization. */
+	bool _isCompilePending = false;
 	/** Can only be populated when _maySpecializeWithMacro is true */
 	std::map<std::vector<std::pair<uint32_t, MVKShaderMacroValue>>, MVKShaderLibrary *> _specializationVariants;
+	std::mutex _specializationLock;
 };
 
 

@@ -19,6 +19,7 @@ MoltenVK 1.4.3
 Released TBD
 
 - Add support for the following extensions:
+  - `VK_KHR_cooperative_matrix`
   - `VK_EXT_depth_clip_enable`
   - `VK_EXT_multi_draw`
   - `VK_EXT_nested_command_buffer`
@@ -29,6 +30,10 @@ Released TBD
 - Fix `VkDeviceMemory` imported from a `MTLTexture` not backing the image bound to it, and over-releasing that texture.
 - Fix leak of the `MTLBuffer` of a host-coherent `VkDeviceMemory` that also holds a `MTLTexture`.
 - Fix pipeline cache matching incompatible shaders when the only difference was in dynamic buffer offset usage.
+- Fix pipeline creation failing when the default values of specialization constants that size arrays
+  do not compile, even though the pipeline specializes them.
+- Update to latest SPIRV-Cross:
+  - MSL: Preserve negative zero in precise multiplication.
 
 
 

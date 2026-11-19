@@ -575,6 +575,7 @@ void MVKPhysicalDevice::getFeatures(VkPhysicalDeviceFeatures2* features) {
 			case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_COOPERATIVE_MATRIX_FEATURES_KHR: {
 				auto* coopMatFeatures = (VkPhysicalDeviceCooperativeMatrixFeaturesKHR*)next;
 				coopMatFeatures->cooperativeMatrix = _metalFeatures.cooperativeMatrix;
+				coopMatFeatures->cooperativeMatrixRobustBufferAccess = false;
 				break;
 			}
 			case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FRAGMENT_SHADER_BARYCENTRIC_FEATURES_KHR: {
@@ -1290,8 +1291,8 @@ void MVKPhysicalDevice::getProperties(VkPhysicalDeviceProperties2* properties) {
 				break;
 			}
 			case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_COOPERATIVE_MATRIX_PROPERTIES_KHR: {
-				auto* coopMatProps = (VkPhysicalDeviceCooperativeMatrixPropertiesKHR*)next;				
-				coopMatProps->cooperativeMatrixSupportedStages = VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
+				auto* coopMatProps = (VkPhysicalDeviceCooperativeMatrixPropertiesKHR*)next;
+				coopMatProps->cooperativeMatrixSupportedStages = VK_SHADER_STAGE_COMPUTE_BIT;
 				break;
 			}
 			case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VERTEX_ATTRIBUTE_DIVISOR_PROPERTIES: {
@@ -1925,36 +1926,21 @@ VkResult MVKPhysicalDevice::getToolProperties(uint32_t* pToolCount, VkPhysicalDe
 }
 
 VkResult MVKPhysicalDevice::getCooperativeMatrixProperties(uint32_t* pPropertyCount, VkCooperativeMatrixPropertiesKHR* pProperties) {
-	// The exact 8x8 configurations Apple Silicon and SPIRV-Cross support
-	static const VkCooperativeMatrixPropertiesKHR coopMatProps[] = {
-        { VK_STRUCTURE_TYPE_COOPERATIVE_MATRIX_PROPERTIES_KHR, nullptr, 
-          8, 8, 8, 
-          VK_COMPONENT_TYPE_FLOAT16_KHR, VK_COMPONENT_TYPE_FLOAT16_KHR, VK_COMPONENT_TYPE_FLOAT16_KHR, VK_COMPONENT_TYPE_FLOAT16_KHR, 
-          VK_FALSE, VK_SCOPE_SUBGROUP_KHR },
-        { VK_STRUCTURE_TYPE_COOPERATIVE_MATRIX_PROPERTIES_KHR, nullptr, 
-          8, 8, 8, 
-          VK_COMPONENT_TYPE_FLOAT32_KHR, VK_COMPONENT_TYPE_FLOAT32_KHR, VK_COMPONENT_TYPE_FLOAT32_KHR, VK_COMPONENT_TYPE_FLOAT32_KHR, 
-          VK_FALSE, VK_SCOPE_SUBGROUP_KHR },
-        { VK_STRUCTURE_TYPE_COOPERATIVE_MATRIX_PROPERTIES_KHR, nullptr, 
-          8, 8, 8, 
-          VK_COMPONENT_TYPE_FLOAT16_KHR, VK_COMPONENT_TYPE_FLOAT16_KHR, VK_COMPONENT_TYPE_FLOAT32_KHR, VK_COMPONENT_TYPE_FLOAT32_KHR, 
-          VK_FALSE, VK_SCOPE_SUBGROUP_KHR }
-    };
-	uint32_t propCnt = sizeof(coopMatProps) / sizeof(coopMatProps[0]);
-
+	// Metal SIMD-group matrices are always 8x8 and SIMD-group scoped.
+	static const VkCooperativeMatrixPropertiesKHR props[] = {
+		{ VK_STRUCTURE_TYPE_COOPERATIVE_MATRIX_PROPERTIES_KHR, nullptr, 8, 8, 8, VK_COMPONENT_TYPE_FLOAT16_KHR, VK_COMPONENT_TYPE_FLOAT16_KHR, VK_COMPONENT_TYPE_FLOAT16_KHR, VK_COMPONENT_TYPE_FLOAT16_KHR, VK_FALSE, VK_SCOPE_SUBGROUP_KHR },
+		{ VK_STRUCTURE_TYPE_COOPERATIVE_MATRIX_PROPERTIES_KHR, nullptr, 8, 8, 8, VK_COMPONENT_TYPE_FLOAT16_KHR, VK_COMPONENT_TYPE_FLOAT16_KHR, VK_COMPONENT_TYPE_FLOAT32_KHR, VK_COMPONENT_TYPE_FLOAT32_KHR, VK_FALSE, VK_SCOPE_SUBGROUP_KHR },
+		{ VK_STRUCTURE_TYPE_COOPERATIVE_MATRIX_PROPERTIES_KHR, nullptr, 8, 8, 8, VK_COMPONENT_TYPE_FLOAT32_KHR, VK_COMPONENT_TYPE_FLOAT32_KHR, VK_COMPONENT_TYPE_FLOAT32_KHR, VK_COMPONENT_TYPE_FLOAT32_KHR, VK_FALSE, VK_SCOPE_SUBGROUP_KHR },
+	};
+	static const uint32_t propCnt = sizeof(props) / sizeof(props[0]);
 	if (!pProperties) {
 		*pPropertyCount = propCnt;
 		return VK_SUCCESS;
 	}
-
-	uint32_t rtCnt = min(*pPropertyCount, propCnt);
-	for (uint32_t i = 0; i < rtCnt; i++) {
-		pProperties[i] = coopMatProps[i];
-	}
-
-	VkResult rslt = (*pPropertyCount >= propCnt) ? VK_SUCCESS : VK_INCOMPLETE;
-	*pPropertyCount = rtCnt;
-	return rslt;	
+	std::copy_n(props, min(*pPropertyCount, propCnt), pProperties);
+	if (*pPropertyCount < propCnt) { return VK_INCOMPLETE; }
+	*pPropertyCount = propCnt;
+	return VK_SUCCESS;
 }
 
 
@@ -2668,7 +2654,7 @@ void MVKPhysicalDevice::initMetalFeatures() {
 		_metalFeatures.samplerClampToBorder = !MVK_TVOS || mvkOSVersionIsAtLeast(16.0);
 		_metalFeatures.samplerMirrorClampToEdge = !MVK_TVOS || mvkOSVersionIsAtLeast(16.0);
 		_metalFeatures.simdReduction = true;
-		_metalFeatures.cooperativeMatrix = true;
+		_metalFeatures.cooperativeMatrix = mvkOSVersionIsAtLeast(14.0, 17.0, 1.0);
 	}
 
 	if (supportsMTLGPUFamily(Apple10)) {
@@ -3625,6 +3611,9 @@ void MVKPhysicalDevice::initExtensions() {
 		pWritableExtns->vk_KHR_shader_subgroup_rotate.enabled = false;
 		pWritableExtns->vk_EXT_shader_subgroup_ballot.enabled = false;
 		pWritableExtns->vk_EXT_shader_subgroup_vote.enabled = false;
+	}
+	if (!_metalFeatures.cooperativeMatrix) {
+		pWritableExtns->vk_KHR_cooperative_matrix.enabled = false;
 	}
 	if (!_metalFeatures.shaderBarycentricCoordinates) {
 		pWritableExtns->vk_KHR_fragment_shader_barycentric.enabled = false;

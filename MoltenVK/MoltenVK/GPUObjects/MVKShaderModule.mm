@@ -73,15 +73,11 @@ MVKMTLFunction MVKShaderLibrary::getMTLFunction(const VkSpecializationInfo* pSpe
 												VkPipelineCreationFeedback* pShaderFeedback,
 												MVKShaderModule* shaderModule) {
 
-	if ( !_mtlLibrary ) { return MVKMTLFunctionNull; }
-
-	id<MTLLibrary> lib = _mtlLibrary;
-
 	// If specialization happens on constants mapped to macro, find or compile a library variant
 	// with proper macro definition instead of the "generic" library
+	vector<pair<uint32_t, MVKShaderMacroValue>> spec_list;
 	if (pSpecializationInfo && _maySpecializeWithMacro) {
 		// Create the list of macro-value mapping
-		vector<pair<uint32_t, MVKShaderMacroValue>> spec_list;
 		for (uint32_t specIdx = 0; specIdx < pSpecializationInfo->mapEntryCount; specIdx++) {
 			const VkSpecializationMapEntry* pMapEntry = &pSpecializationInfo->pMapEntries[specIdx];
 			uint32_t const_id = pMapEntry->constantID;
@@ -94,8 +90,15 @@ MVKMTLFunction MVKShaderLibrary::getMTLFunction(const VkSpecializationInfo* pSpe
 				spec_list.push_back(make_pair(const_id, macro_value));
 			}
 		}
+	}
 
-		if (!spec_list.empty()) {
+	id<MTLLibrary> lib = nil;
+	{
+		lock_guard<mutex> lock(_specializationLock);
+		if (spec_list.empty()) {
+			if (_isCompilePending) { compileUnspecializedLibrary(); }
+			lib = _mtlLibrary;
+		} else {
 			// Sort the specialization list before it is used as a key to index the variants
 			std::sort(spec_list.begin(), spec_list.end());
 			auto entry = _specializationVariants.find(spec_list);
@@ -109,6 +112,7 @@ MVKMTLFunction MVKShaderLibrary::getMTLFunction(const VkSpecializationInfo* pSpe
 		}
 	}
 
+	if ( !lib ) { return MVKMTLFunctionNull; }
 
 	@synchronized (getMTLDevice()) {
 		@autoreleasepool {
@@ -207,7 +211,11 @@ MVKShaderLibrary::MVKShaderLibrary(MVKVulkanAPIDeviceObject* owner,
 
 	_shaderConversionResultInfo = conversionResult.resultInfo;
 	compressMSL(conversionResult.msl);
-	compileLibrary(conversionResult.msl);
+
+	// The default values of specialization constants that are macros may not compile, such as
+	// the dimensions of a cooperative matrix, so only compile with them when they are needed.
+	_isCompilePending = !_shaderConversionResultInfo.specializationMacros.empty();
+	if ( !_isCompilePending ) { compileLibrary(conversionResult.msl); }
 }
 
 MVKShaderLibrary::MVKShaderLibrary(MVKVulkanAPIDeviceObject* owner,
@@ -220,9 +228,21 @@ MVKShaderLibrary::MVKShaderLibrary(MVKVulkanAPIDeviceObject* owner,
 
 	_shaderConversionResultInfo = resultInfo;
 	_compressedMSL = compressedMSL;
+	if (specializationMacroDef) {
+		string msl;
+		decompressMSL(msl);
+		compileLibrary(msl, specializationMacroDef);
+	} else {
+		_isCompilePending = !_shaderConversionResultInfo.specializationMacros.empty();
+		if ( !_isCompilePending ) { compileUnspecializedLibrary(); }
+	}
+}
+
+void MVKShaderLibrary::compileUnspecializedLibrary() {
 	string msl;
 	decompressMSL(msl);
-	compileLibrary(msl, specializationMacroDef);
+	compileLibrary(msl);
+	_isCompilePending = false;
 }
 
 void MVKShaderLibrary::compileLibrary(const string& msl,
@@ -271,6 +291,7 @@ MVKShaderLibrary::MVKShaderLibrary(const MVKShaderLibrary& other) :
 	MVKBaseDeviceObject(other._device),
 	_owner(other._owner),
 	_maySpecializeWithMacro(other._maySpecializeWithMacro),
+	_isCompilePending(other._isCompilePending),
 	_specializationVariants(other._specializationVariants) {
 
 	_mtlLibrary = [other._mtlLibrary retain];
@@ -284,6 +305,7 @@ MVKShaderLibrary& MVKShaderLibrary::operator=(const MVKShaderLibrary& other) {
 		_mtlLibrary = [other._mtlLibrary retain];
 	}
 	_owner = other._owner;
+	_isCompilePending = other._isCompilePending;
 	_shaderConversionResultInfo = other._shaderConversionResultInfo;
 	_compressedMSL = other._compressedMSL;
 	return *this;
