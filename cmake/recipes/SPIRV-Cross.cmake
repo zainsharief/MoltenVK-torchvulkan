@@ -13,7 +13,7 @@ string(STRIP "${SPIRV_CROSS_COMMIT_HASH}" SPIRV_CROSS_COMMIT_HASH)
 include(CPM)
 CPMAddPackage(
   NAME SPIRV-Cross
-  GITHUB_REPOSITORY zainsharief/spirv-cross-torchvulkan
+  GITHUB_REPOSITORY zainsharief/SPIRV-Cross-torchvulkan
   GIT_TAG ${SPIRV_CROSS_COMMIT_HASH}
   SYSTEM TRUE
   OPTIONS
